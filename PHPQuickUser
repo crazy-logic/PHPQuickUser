@@ -1,0 +1,320 @@
+<?php
+//this is the working in progress version of QU - not yet published. 
+//createuser('email','password'); //use to create users for the system. 
+
+$GreCaptchasitekey = ""; //insert ur own keys 
+$GreCaptchasecretkey = ""; //insert ur own keys 
+$javascriptstring = "<script src='https://www.google.com/recaptcha/api.js'></script>";
+$domain = "example.com"; //put domain here
+
+if(isset($_GET['logout'])){logout();}
+
+function logout()
+{
+	$_SESSION = array();
+	if (ini_get("session.use_cookies")) {
+    $params = session_get_cookie_params();
+    setcookie(session_name(), '', time() - 42000,
+        $params["path"], $params["domain"],
+        $params["secure"], $params["httponly"]
+    );
+	}
+	session_destroy();
+}
+
+//we expect $conn to be the database connection. 
+//$conn = mysqli_connect('localhost', '', 'pwd', ''); //fill in here 
+//global $conn;
+//if (!$conn) {die("Connection failed: " . mysqli_connect_error());}
+
+function QU_loggedin() //returns is a user is logged in. 
+{
+	if(!isset($_SESSION['user']))
+	{return FALSE;}
+	else 
+	{return TRUE;}
+}
+
+function QU_isadmin()
+{
+	$isadmin = FALSE;
+	if(isset($_SESSION['user']))
+	{
+		//the user is logged in so check if admin 
+		global $conn;
+		$uid = $_SESSION['user'];
+		$sql = "SELECT admin FROM `users` WHERE userid='$uid' "; 
+		$result = mysqli_query($conn, $sql);
+	 	$row=mysqli_fetch_assoc($result);
+	 	if( $row['admin']==true)
+	 	{
+	 		//the user is both logged in and an admin so.... 
+	 		$isadmin= true;
+	 	}
+	}
+	if ($isadmin==true) {return true;}else {return false;}
+
+}
+
+function QU_loginform()
+{
+	global $GreCaptchasitekey;
+	global $GreCaptchasecretkey;
+	//if a password is passed then process a login 
+	//if not - display the form. 
+	if(isset($_POST['password']))
+		{QU_login();}
+	elseif(isset($_GET['forgotten']))
+	{
+		if(isset($_POST['Reset']))
+		{
+			echo "<div align='center'>";
+			echo "If a match has been found, we have sent instruction to it for resetting the password.";
+			echo "</div>";
+			
+			global $conn;
+			$semail = mysqli_real_escape_string($conn, $_POST['email']);
+			QU_resetpasswordhash($semail);
+		}
+		elseif(isset($_GET['RID']))
+		{
+			global $conn;
+			$rid = mysqli_real_escape_string($conn, $_GET['RID']);
+			//there is a reset id so process away..... 
+			if(isset($_POST['password1'])&&isset($_POST['password2'])&&$_POST['password1']==$_POST['password2'])
+			{
+				$password = mysqli_real_escape_string($conn, $_POST['password2']);
+				$spwd = password_hash($password, PASSWORD_DEFAULT);
+				$sql = "UPDATE `users` SET `password` = '$spwd',`hash`='' WHERE `users`.`hash` = '$rid'";
+				mysqli_query($conn, $sql);
+					echo "<div align='center'>";
+					echo "Please login";
+					echo "<form method='POST' action='?'>";
+					echo "<p><input type='text' name='email' value='' placeholder='Username or Email'></p>
+				        <p><input type='password' name='password' value='' placeholder='Password'></p>
+				        <input type='hidden' name='page' value='login'/>
+				        <p><input type='submit' name='commit' value='Login'></p>";
+				    echo "<a href='?forgotten'>Forgotten password?<a/>";
+					echo "</form>";
+					echo "</div>";
+			}
+			else
+			{
+			echo "<div align='center'>";
+			echo "Please enter a new password twice.";
+			echo "<form method='POST' action='?forgotten&RID=$rid'>";
+			echo "<p><input type='password' name='password1' value=''></p>";
+				echo "<p><input type='password' name='password2' value=''></p>";
+			echo "<p><input type='submit' name='Reset2' value='Reset'></p>";
+			echo "</div>";
+			}
+		}
+		else
+		{
+			echo "<div align='center'>";
+			echo "<form method='POST' action='?forgotten'>";
+			echo "Please enter your email address: ";
+			echo "<p><input type='text' name='email' value='' placeholder='Email'></p>";
+			echo "<p><input type='submit' name='Reset' value='Reset'></p>";
+			echo "</div>";
+		}
+	}
+	else
+	{
+			echo "<div align='center'>";
+			echo "Please login";
+			echo "<form method='POST' action='?'>";
+			echo "<p><input type='text' name='email' value='' placeholder='Username or Email'></p>
+		        <p><input type='password' name='password' value='' placeholder='Password'></p>
+		        <input type='hidden' name='page' value='login'/>
+		        <div class='g-recaptcha' data-sitekey='$GreCaptchasitekey'></div>
+		        <p><input type='submit' name='commit' value='Login'></p>";
+		    echo "<a href='?forgotten'>Forgotten password?<a/>";
+			echo "</form>";
+			echo "</div>";
+	}
+
+}
+
+function QU_login()
+{
+	global $conn; 
+	global $GreCaptchasecretkey;
+	//echo "here";
+	if(isset($_POST['email']))
+	{
+		$semail = mysqli_real_escape_string($conn, $_POST['email']);
+		$password = mysqli_real_escape_string($conn, $_POST['password']);
+	}
+	
+	//$spwd = mysqli_real_escape_string($conn, $_POST['password']);
+	if(isset($_POST['g-recaptcha-response']))
+	{
+		//echo $_POST['g-recaptcha-response'];
+	$grecaptcharesponse = mysqli_real_escape_string($conn, $_POST['g-recaptcha-response']);
+	//echo $grecaptcharesponse;
+	$mysecret = $GreCaptchasecretkey;
+	$recaptchapass=0;
+	//lets see if the google recapute worked.... 
+		{
+			$url = 'https://www.google.com/recaptcha/api/siteverify';
+			$myvars = 'secret=' . $mysecret . '&response=' . $grecaptcharesponse;
+			
+			$ch = curl_init( $url );
+			curl_setopt( $ch, CURLOPT_POST, 1);
+			curl_setopt( $ch, CURLOPT_POSTFIELDS, $myvars);
+			curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
+			curl_setopt( $ch, CURLOPT_HEADER, 0);
+			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
+			
+			$response = curl_exec( $ch );
+			
+			//echo $response;
+			// soemthing like { "success": true, "challenge_ts": "2018-09-07T14:12:47Z", "hostname": "$domain" } 
+			$array = json_decode($response,true);
+			//var_dump($array);
+			
+			$recaptchapass = $array['success'];
+			//echo $recaptchapass;
+		}
+	
+	
+		if($recaptchapass==1)
+		{
+			$sql = "SELECT userid, password FROM `users` WHERE email='$semail' "; 
+							$result = mysqli_query($conn, $sql);
+							//echo mysqli_error($conn);
+						 	$numresults = mysqli_num_rows($result); // shoult be 1!!!! 
+						 	//echo $numresults;
+						 	if($numresults == 1)
+						 		{
+						 			$row=mysqli_fetch_assoc($result);
+						 			if(password_verify($password, $row['password']))
+						 			{
+						 				//the passwords match 
+						 				$_SESSION['user']=$row['userid'];
+						 				//need to pass seomthing here. 
+						 				header("Refresh:0");
+						 			}
+						 			else 
+								 	{
+								 		//password doesn't match 
+								 		$_POST['password']=null;
+								 		QU_loginform();
+								 	}
+						 		} 
+						 	else 
+						 	{ 	//there is a bad result so we can ask again
+						 		$_POST['password']=null;
+						 		QU_loginform();
+						 	}
+		}
+	
+	}
+	else
+	{
+		$_POST['password']=null;
+		QU_loginform();
+		//var_dump($_POST);
+	}
+	
+	
+	
+	
+						
+	
+ 	
+}
+
+function createusertable($conn)
+{
+	$sql = "CREATE TABLE users (
+			userid INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY, 
+			email VARCHAR(255) NOT NULL,
+			name VARCHAR(255),
+			password VARCHAR(255) NOT NULL,
+			hash VARCHAR(40))";
+	echo "Creating table ";
+	mysqli_query($conn, $sql);
+	echo mysqli_error($conn);
+}
+
+function QU_userresethash($userid)
+{
+	global $conn;
+	$time = time();
+	$random = rand(0,1000000000000);
+	$hash = sha1($time.$random);
+	$sql = "UPDATE `users` SET `hash` = '$hash' WHERE `users`.`userid` = $userid";
+	mysqli_query($conn, $sql);
+	//echo $hash;
+	//mailmessage($message, $to, $subject);
+	
+}
+
+function QU_createuser($email,$password)
+//creates a user and returns the userid. 
+{
+	global $conn;
+	$semail = mysqli_real_escape_string($conn, $email);
+	$spwd = password_hash($password, PASSWORD_DEFAULT);
+	$sql = "INSERT INTO `users` (`email`, `password`) 
+			VALUES ('$semail', '$spwd')";
+	mysqli_query($conn, $sql);
+	//echo 'created';
+	
+	$sql = "SELECT userid FROM `users` WHERE email='$semail' and password='$spwd' "; 
+	$result = mysqli_query($conn, $sql);
+	//echo mysqli_error($conn);
+ 	//$numresults = mysqli_num_rows($result); // shoult be 1!!!! 
+	//echo 'here'.$numresults;
+ 	$row=mysqli_fetch_assoc($result);
+ 	QU_userresethash($row['userid']);
+ 	//echo 'here'.$row['userid'];
+ 	return $row['userid'];
+}
+
+function QU_resetpasswordhash($email)
+{
+	//step 1 = get user id from email.... 
+	global $conn;
+	$semail = mysqli_real_escape_string($conn, $email);
+	
+	$sql = "SELECT userid from `users` where email = '$semail'";
+	$result = mysqli_query($conn, $sql);
+	if (mysqli_num_rows($result) == 1) 
+		{
+			//only one user exists so continue.
+			while($row = mysqli_fetch_assoc($result)) 
+			{
+				$userid = $row['userid'];
+				{ //step 2 = reset hash and email to user. 
+					$time = time();
+					$random = rand(0,1000000000000);
+					$hash = sha1($time.$random);
+					$sql = "UPDATE `users` SET `hash` = '$hash' WHERE `users`.`userid` = $userid";
+					mysqli_query($conn, $sql);
+					//echo $hash;
+					global $domain;
+					$message = "someone has requested that your password be reset. Please <a href='https://$domain/index.php?forgotten&RID=$hash'>click here<a/> to reset your passowrd, or you may ignore this message if you do not need to reset your password. ";
+					mailmessage($message, $semail, "Password reset for $domain");
+					
+				}
+			}
+		}
+	else 
+		{//do nothing as user doesn't exist... 
+		}
+}
+
+function nameofuser()
+{
+	global $conn;
+	$userid = $_SESSION['user'];
+	$sql = "select name from users where userid=$userid";
+	$result = mysqli_query($conn, $sql);
+	$row=mysqli_fetch_assoc($result);
+		
+	return $row['name'];
+}
+?>
