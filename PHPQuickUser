@@ -1,5 +1,91 @@
 <?php
-//this is the working in progress version of QU - not yet published. 
+session_start();
+
+if(isset($_GET['setup']))
+{
+	if(isset($_POST['database']))
+	{
+		//someone has submit something.... 
+		$conn = mysqli_connect('localhost', $_POST['user'], $_POST['password']); //fill in here 
+		//global $conn;
+		if ($conn) 
+		{
+			//db user/password correct so lets save to session and carry on. 
+		
+			$_SESSION['setup']=true;
+			$_SESSION['dbuser']= $_POST['user'];
+			$_SESSION['dbpassword']= $_POST['password'];
+			//does the db exist? 
+			if(mysqli_select_db($conn,$_POST['database']))
+			{
+				//database exists
+				$_SESSION['dbdatabase']= $_POST['database'];
+				echo "database selected";
+			}
+			else 
+			{
+				echo "database doesn't exist - So i'm making it. ";
+				$conn = mysqli_connect('localhost', $_SESSION['dbuser'], $_SESSION['dbpassword']); //fill in here 
+				$sql = "CREATE DATABASE ".$_POST['database'];
+				mysqli_query($conn, $sql);
+				mysqli_select_db($conn,$_POST['database']);
+				
+			}
+			
+			createtables($conn);
+		}
+		else //details are wrong ask again... 
+		{
+			echo "wrong details - try again. ";
+			echo "<form action='?setup' method='POST'>
+				SQL root user: <input type='text' required name='user'>
+				SQL root password: <input type='password' required name='password'>
+				SQL database name: <input type='text' required name='database'>
+				<input type='submit'>
+				</form>";
+			//die("Connection failed: " . mysqli_connect_error());
+			
+		}
+	}
+	else //ask for log in...
+	{
+	echo "Entering set up ";
+	echo "<form action='?setup' method='POST'>
+		SQL root user: <input type='text' required name='user'>
+		SQL root password: <input type='password' required name='password'>
+		SQL database name: <input type='text' required name='database'>
+		<input type='submit'>
+		</form>";
+	}
+}
+
+function createtables($conn)
+{
+	$sql = "CREATE TABLE users (
+			userid INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY, 
+			email VARCHAR(255) NOT NULL,
+			name VARCHAR(255),
+			password VARCHAR(255) NOT NULL,
+			hash VARCHAR(40))";
+	echo "Creating table ";
+	mysqli_query($conn, $sql);
+	echo mysqli_error($conn);
+
+	$sql = "CREATE TABLE QUsettings (
+			setting VARCHAR(255) NOT NULL,
+			value VARCHAR(255) )";
+	echo "Creating table ";
+	mysqli_query($conn, $sql);
+	echo mysqli_error($conn);
+	
+}
+
+
+
+
+
+
+
 //createuser('email','password'); //use to create users for the system. 
 
 $GreCaptchasitekey = ""; //insert ur own keys 
@@ -226,18 +312,7 @@ function QU_login()
  	
 }
 
-function createusertable($conn)
-{
-	$sql = "CREATE TABLE users (
-			userid INT(6) UNSIGNED AUTO_INCREMENT PRIMARY KEY, 
-			email VARCHAR(255) NOT NULL,
-			name VARCHAR(255),
-			password VARCHAR(255) NOT NULL,
-			hash VARCHAR(40))";
-	echo "Creating table ";
-	mysqli_query($conn, $sql);
-	echo mysqli_error($conn);
-}
+
 
 function QU_userresethash($userid)
 {
